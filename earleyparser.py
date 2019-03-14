@@ -1,29 +1,161 @@
+def show_sym(sym):
+    if isinstance(sym,str): return('"' + sym + '"')
+    if isinstance(sym,N): return(str(sym))
+
+class N:
+
+    def __init__(self,sym):
+        self.symbol = sym
+
+    def __repr__(self):
+        return(self.symbol + "↓")
+
+    def __eq__(self,other):
+        return(isinstance(other,N) and\
+               self.symbol == other.symbol)
+
+
 class Rule:
 
     def __init__(self,lhs,rhs):
         self.lhs = lhs
         self.rhs = rhs
 
+    def __repr__(self):
+        return(self.lhs + " -> " + " ".join([ show_sym(sym) for sym in self.rhs ]))
+
+    def __eq__(self,other):
+        return(isinstance(other, Rule) and\
+               self.lhs == other.lhs and\
+               self.rhs == other.rhs)
+
+    def start(self, loc):
+        return InProgressRule(self, 0, loc)
+
+
 class InProgressRule:
 
-    def __init__(self,lhs,rhs_done,rhs_next):
-        self.lhs = lhs
-        self.rhs_done = rhs_done
-        self.rhs_next = rhs_next
+    def __init__(self,rule,index,loc):
+        self.rule = rule
+        self.index = index
+        self.location = loc
+
+    def __repr__(self):
+        return(self.rule.lhs + " -> " + " ".join([ show_sym(sym) for sym in self.rule.rhs[0:self.index] ])\
+                 + " . " + " ".join([ show_sym(sym) for sym in self.rule.rhs[self.index:] ])\
+                 + " @ " + str(self.location))
+
+    def __eq__(self,other):
+        return(isinstance(other, InProgressRule) and\
+               self.rule == other.rule and\
+               self.index == other.index and\
+               self.location == other.location)
 
     def is_done(self):
-        return(0 == len(self.rhs_next))
+        return(self.index == len(self.rule.rhs))
 
     def next(self):
         if self.is_done():
             return(None)
         else:
-            return(InProgressRule(self.lhs, self.rhs_done + self.rhs_next[0:1], self.rhs_next[1:]))
+            return(InProgressRule(self.rule, self.index+1, self.location))
 
-    def __eq__(self,other):
-        return(self.lhs == other.lhs and\
-               self.rhs_done == other.rhs_done and\
-               self.rhs_next == other.rhs_next)
+    def waiting_for(self):
+        if self.is_done():
+            return(None)
+        else:
+            return(self.rule.rhs[self.index])
 
-    def __repr__(self):
-        return(self.lhs + " -> " + " ".join(self.rhs_done) + " . " + " ".join(self.rhs_next))
+
+class Grammar:
+
+    def __init__(self, start_sym, rules):
+        self.start_symbol = start_sym
+        self.rules = rules
+
+    def rules_for_symbol(self,sym):
+        return([ r for r in self.rules if r.lhs == sym.symbol ])
+
+
+class ParseState:
+
+    @classmethod
+    def initial_itemsets(self,grammar):
+        return([[ r.start(0) for r in grammar.rules_for_symbol(N(grammar.start_symbol)) ]])
+
+    def __init__(self, grammar, input):
+        self.grammar = grammar
+        self.input = input
+        self.current_token = 0
+        self.itemsets = ParseState.initial_itemsets(grammar)
+        self.completedsets = [[]]
+
+    def is_done(self):
+        return(self.current_token == len(self.input))
+
+    def is_successful(self):
+        for item in self.completedsets[self.current_token]:
+            if item.rule.lhs == self.grammar.start_symbol and item.is_done() and item.location == 0:
+                return(True)
+        return(False)
+
+    def print_info(self):
+        if self.is_done():
+            print("Input State: Done")
+        else:
+            print("Input State: ", " ".join(self.input[0:self.current_token]), ">>", self.input[self.current_token], "<<", " ".join(self.input[self.current_token+1:]))
+            print("Current Itemset:")
+            for item in self.itemsets[self.current_token]: print("  ", item)
+        print("Current Completedset:")
+        for item in self.completedsets[self.current_token]: print("  ", item)
+
+    def scanner(self):
+        itemset = self.itemsets[self.current_token]
+        return([ ipr for ipr in itemset if ipr.waiting_for() == self.input[self.current_token] ])
+
+    def step(self):
+
+        # Upward Sweep
+
+        agenda = self.scanner()
+        self.current_token += 1
+        completed = []
+        active = []
+
+        while agenda:
+            ipr = agenda.pop().next()
+            #print("Processing IPR: ", ipr, " ...")
+            if ipr.is_done():
+                #print("Done.")
+                completed += [ipr]
+                new_agenda = [ older_ipr for older_ipr in self.itemsets[ipr.location] if older_ipr.waiting_for() == N(ipr.rule.lhs) ]
+                if new_agenda:
+                    #print("Adding new agenda items for older IPRs:")
+                    for old in new_agenda: print(old)
+                    agenda += new_agenda
+            else:
+                #print("Not done.")
+                active += [ipr]
+            #print("")
+
+        #print(active)
+
+        # Downward Sweep
+
+        new_itemset = []
+
+        while active:
+            ipr = active.pop()
+            new_itemset += [ipr]
+            sym = ipr.waiting_for()
+            if isinstance(sym,N):
+                for rule in self.grammar.rules_for_symbol(sym):
+                    new_item = rule.start(self.current_token)
+                    if new_item not in new_itemset and new_item not in agenda:
+                        new_itemset += [new_item]
+                        agenda += [new_item]
+
+        #print(new_itemset)
+
+        self.itemsets += [new_itemset]
+        self.completedsets += [completed]
