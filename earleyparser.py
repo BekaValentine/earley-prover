@@ -1,3 +1,8 @@
+class ParseTree:
+    def __init__(self, label, children):
+        self.label = label
+        self.children = children
+
 def show_sym(sym):
     if isinstance(sym,str): return('"' + sym + '"')
     if isinstance(sym,N): return(str(sym))
@@ -66,6 +71,25 @@ class InProgressRule:
         else:
             return(self.rule.rhs[self.index])
 
+    def complete(self,end):
+        return(CompletedRule(self.rule,self.location,end))
+
+class CompletedRule:
+
+    def __init__(self,rule,startloc,endloc):
+        self.rule = rule
+        self.start_location = startloc
+        self.end_location = endloc
+
+    def __repr__(self):
+        return(str(self.rule) + " @ " + str(self.start_location) + ":" + str(self.end_location))
+
+    def __eq__(self,other):
+        return(isinstance(other, CompletedRule) and\
+               self.rule == other.rule and\
+               self.start_location == other.start_location and\
+               self.end_location == other.end_location)
+
 
 class Grammar:
 
@@ -83,6 +107,16 @@ class ParseState:
     def initial_itemsets(self,grammar):
         return([[ r.start(0) for r in grammar.rules_for_symbol(N(grammar.start_symbol)) ]])
 
+    @classmethod
+    def construct_parse_tree(completedsets, label, index):
+        trees = []
+
+        for item in completedsets[index]:
+            if item.rule.lhs == label.symbol:
+                pass
+
+        return(trees)
+
     def __init__(self, grammar, input):
         self.grammar = grammar
         self.input = input
@@ -95,9 +129,11 @@ class ParseState:
 
     def is_successful(self):
         for item in self.completedsets[self.current_token]:
-            if item.rule.lhs == self.grammar.start_symbol and item.is_done() and item.location == 0:
+            if item.rule.lhs == self.grammar.start_symbol and item.start_location == 0:
                 return(True)
         return(False)
+
+
 
     def print_info(self):
         if self.is_done():
@@ -127,7 +163,7 @@ class ParseState:
             #print("Processing IPR: ", ipr, " ...")
             if ipr.is_done():
                 #print("Done.")
-                completed += [ipr]
+                completed += [ipr.complete(self.current_token)]
                 new_agenda = [ older_ipr for older_ipr in self.itemsets[ipr.location] if older_ipr.waiting_for() == N(ipr.rule.lhs) ]
                 if new_agenda:
                     #print("Adding new agenda items for older IPRs:")
