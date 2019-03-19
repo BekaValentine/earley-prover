@@ -1,7 +1,11 @@
 class ParseTree:
+
     def __init__(self, label, children):
         self.label = label
         self.children = children
+
+    def __repr__(self):
+        return(self.label + "(" + ",".join([ str(c) for c in self.children ]) + ")")
 
 def show_sym(sym):
     if isinstance(sym,str): return('"' + sym + '"')
@@ -40,15 +44,17 @@ class Rule:
 
 class InProgressRule:
 
-    def __init__(self,rule,index,loc):
+    def __init__(self,rule,index,loc,children = [[]]):
         self.rule = rule
         self.index = index
         self.location = loc
+        self.children = children
 
     def __repr__(self):
         return(self.rule.lhs + " -> " + " ".join([ show_sym(sym) for sym in self.rule.rhs[0:self.index] ])\
                  + " . " + " ".join([ show_sym(sym) for sym in self.rule.rhs[self.index:] ])\
-                 + " @ " + str(self.location))
+                 + " @ " + str(self.location)\
+                 + " (children: " + str(self.children) + ")")
 
     def __eq__(self,other):
         return(isinstance(other, InProgressRule) and\
@@ -63,7 +69,7 @@ class InProgressRule:
         if self.is_done():
             return(None)
         else:
-            return(InProgressRule(self.rule, self.index+1, self.location))
+            return(InProgressRule(self.rule, self.index+1, self.location, self.children))
 
     def waiting_for(self):
         if self.is_done():
@@ -71,18 +77,25 @@ class InProgressRule:
         else:
             return(self.rule.rhs[self.index])
 
+    def with_new_child(self,child_opts):
+        new_children = [ children_option + [child_option] for children_option in self.children for child_option in child_opts ]
+        return(InProgressRule(self.rule, self.index,self.location,new_children))
+
     def complete(self,end):
-        return(CompletedRule(self.rule,self.location,end))
+        parses = [ ParseTree(self.rule.lhs, children_option) for children_option in self.children ]
+        return(CompletedRule(self.rule,self.location,end,parses))
 
 class CompletedRule:
 
-    def __init__(self,rule,startloc,endloc):
+    def __init__(self,rule,startloc,endloc,parses):
         self.rule = rule
         self.start_location = startloc
         self.end_location = endloc
+        self.parses = parses
 
     def __repr__(self):
-        return(str(self.rule) + " @ " + str(self.start_location) + ":" + str(self.end_location))
+        return(str(self.rule) + " @ " + str(self.start_location) + ":" + str(self.end_location)\
+                + " (parses: " + " ".join([ str(t) for t in self.parses ]) + ")")
 
     def __eq__(self,other):
         return(isinstance(other, CompletedRule) and\
@@ -147,7 +160,8 @@ class ParseState:
 
     def scanner(self):
         itemset = self.itemsets[self.current_token]
-        return([ ipr for ipr in itemset if ipr.waiting_for() == self.input[self.current_token] ])
+        tok = self.input[self.current_token]
+        return([ ipr.with_new_child([tok]) for ipr in itemset if ipr.waiting_for() == tok ])
 
     def step(self):
 
@@ -163,8 +177,9 @@ class ParseState:
             #print("Processing IPR: ", ipr, " ...")
             if ipr.is_done():
                 #print("Done.")
-                completed += [ipr.complete(self.current_token)]
-                new_agenda = [ older_ipr for older_ipr in self.itemsets[ipr.location] if older_ipr.waiting_for() == N(ipr.rule.lhs) ]
+                cr = ipr.complete(self.current_token)
+                completed += [cr]
+                new_agenda = [ older_ipr.with_new_child(cr.parses) for older_ipr in self.itemsets[ipr.location] if older_ipr.waiting_for() == N(ipr.rule.lhs) ]
                 if new_agenda:
                     #print("Adding new agenda items for older IPRs:")
                     for old in new_agenda: print(old)
